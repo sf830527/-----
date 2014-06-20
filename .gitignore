@@ -1,0 +1,293 @@
+# Memory Puzzle
+# By Al Sweigart al@inventwithpython.com
+# http://inventwithpython.com/pygame
+# Released under a "Simplified BSD" license
+
+import random, pygame, sys
+from pygame.locals import *
+
+畫面刷新速度 = 30 # frames per second, the general speed of the program
+畫面寬度 = 640 # size of window's width in pixels
+畫面高度 = 480 # size of windows' height in pixels
+按鈕速度 = 8 # speed boxes' sliding reveals and covers
+按鈕尺寸 = 40 # size of box height & width in pixels
+間格寬度 = 10 # size of gap between boxes in pixels
+寬度 = 10 # number of columns of icons
+高度 = 7 # number of rows of icons
+assert (寬度 * 高度) % 2 == 0, 'Board needs to have an even number of boxes for pairs of matches.'
+X軸 = int((畫面寬度 - (寬度 * (按鈕尺寸 + 間格寬度))) / 2)
+Y軸 = int((畫面高度 - (高度 * (按鈕尺寸 + 間格寬度))) / 2)
+
+#            R    G    B
+灰色     = (100, 100, 100)
+深藍色  = ( 60,  60, 100)
+白色     = (255, 255, 255)
+紅色     = (255,   0,   0)
+綠色     = (  0, 255,   0)
+藍色     = (  0,   0, 255)
+黃色     = (255, 255,   0)
+橘色     = (255, 128,   0)
+紫色     = (255,   0, 255)
+青色     = (  0, 255, 255)
+
+背景顏色 = 深藍色
+亮背景色 = 灰色
+按鈕顏色 = 白色
+超亮顏色 = 藍色
+
+圈圈 = 'donut'
+方塊 = 'square'
+鑽石 = 'diamond'
+線條 = 'lines'
+橢圓 = 'oval'
+
+所有顏色 = (紅色, 綠色, 藍色, 黃色, 橘色, 紫色, 青色)
+所有形狀 = (圈圈, 方塊, 鑽石, 線條, 橢圓)
+assert len(所有顏色) * len(所有形狀) * 2 >= 寬度 * 高度, "Board is too big for the number of shapes/colors defined."
+
+def main():
+    global 畫面刷新計數器, 顯示
+    pygame.init()
+    畫面刷新計數器 = pygame.time.Clock()
+    顯示 = pygame.display.set_mode((畫面寬度, 畫面高度))
+
+    滑鼠X = 0 # used to store x coordinate of mouse event
+    滑鼠Y = 0 # used to store y coordinate of mouse event
+    pygame.display.set_caption('Memory Game')
+
+    主板 = 隨機圖案()
+    面板按鈕 = 普通面板資料(False)
+
+    首選 = None # stores the (x, y) of the first box clicked.
+
+    DISPLAYSURF.fill(背景顏色)
+    開始遊戲動畫(主板)
+
+    while True: # main game loop
+        滑鼠點擊 = False
+
+        DISPLAYSURF.fill(背景顏色) # drawing the window
+        畫版(主板, r按鈕)
+
+        for event in pygame.event.get(): # event handling loop
+            if event.type == QUIT or (event.type == KEYUP and event.key == K_ESCAPE):
+                pygame.quit()
+                sys.exit()
+            elif event.type == MOUSEMOTION:
+                滑鼠X,滑鼠Y= event.pos
+            elif event.type == MOUSEBUTTONUP:
+                滑鼠X, 滑鼠Y = event.pos
+                滑鼠點擊 = True
+
+        按鈕X, 按鈕Y = 獲得按鈕(滑鼠X, 滑鼠Y)
+        if 按鈕X != None and 按鈕Y != None:
+            # The mouse is currently over a box.
+            if not 按鈕[按鈕X][按鈕Y]:
+                畫超亮按鈕(按鈕X, 按鈕Y)
+            if not 按鈕[按鈕X][按鈕Y] and 滑鼠點擊:
+                按鈕動畫(主板, [(按鈕X, 按鈕Y)])
+                按鈕[按鈕X][按鈕Y] = True # set the box as "revealed"
+                if 首選 == None: # the current box was the first box clicked
+                    首選 = (按鈕X, 按鈕Y)
+                else: # the current box was the second box clicked
+                    # Check if there is a match between the two icons.
+                    按鈕1形狀, 按鈕1顏色 = 得到形狀跟顏色(主板, 首選[0], 首選[1])
+                    按鈕2形狀, 按鈕2顏色 = 得到形狀跟顏色(主板, 按鈕X, 按鈕Y)
+
+                    if 按鈕1形狀 != 按鈕2形狀 or 按鈕1顏色 != 按鈕2顏色:
+                        # Icons don't match. Re-cover up both selections.
+                        pygame.time.wait(1000) # 1000 milliseconds = 1 sec
+                        按鈕動畫(主板, [(首選[0], 首選[1]), (按鈕X, 按鈕Y)])
+                        按鈕[首選[0]][首選[1]] = False
+                        按鈕[按鈕X][按鈕Y] = False
+                    elif 贏了(按鈕): # check if all pairs found
+                        勝利動畫(主板)
+                        pygame.time.wait(2000)
+
+                        # Reset the board
+                        主板 = 隨機面板()
+                        按鈕 = 普通按鈕(False)
+
+                        # Show the fully unrevealed board for a second.
+                        畫版(主板, 按鈕)
+                        pygame.display.update()
+                        pygame.time.wait(1000)
+
+                        # Replay the start game animation.
+                        開始動畫(mainBoard)
+                    首選 = None # reset firstSelection variable
+
+        # Redraw the screen and wait a clock tick.
+        pygame.display.update()
+        畫面刷新計數器.tick(畫面刷新速度)
+
+
+def 按鈕資料(val):
+    按鈕 = []
+    for i in range(按鈕寬度):
+        按鈕.append([val] * 按鈕高度)
+    return 按鈕
+
+
+def 隨機按鈕():
+    # Get a list of every possible shape in every possible color.
+    輸入 = []
+    for 顏色 in 全部顏色:
+        for 形狀 in 全部形狀:
+            輸入.append( (形狀, 顏色) )
+
+    隨機.shuffle(輸入) # randomize the order of the icons list
+    已用數字 = int(寬度 * 高度T / 2) # calculate how many icons are needed
+    輸入 = 輸入[:已用數字] * 2 # make two of each
+    隨機.shuffle(輸入)
+
+    # Create the board data structure, with randomly placed icons.
+    板面 = []
+    for x in range(寬度):
+        柱 = []
+        for y in range(高度):
+            柱.append(輸入[0])
+            del 輸入[0] # remove the icons as we assign them
+        版面.append(柱)
+    return 版面
+
+
+def 拆組(組量, 清單):
+    # splits a list into a list of lists, where the inner lists have at
+    # most groupSize number of items.
+    結果 = []
+    for i in range(0, len(清單), 組量):
+        結果.append(清單[i:i + 組量])
+    return 結果
+
+
+def 上左(按鈕X, 按鈕Y):
+    # Convert board coordinates to pixel coordinates
+    左 = 按鈕X * (按鈕尺寸 + 間隔寬度) + X軸
+    上 = 按鈕Y * (按鈕尺寸 + 間隔寬度) + Y軸
+    return (left, top)
+
+
+def 按鈕像素(x, y):
+    for 按鈕X in range(寬度):
+        for 按鈕Y in range(高度):
+            左, 上 = 上左(按鈕X, 按鈕Y)
+            按鈕處 = pygame.按鈕處(左, 上, 按鈕尺寸, 按鈕尺寸)
+            if 按鈕處.collidepoint(x, y):
+                return (按鈕X,按鈕Y)
+    return (None, None)
+
+
+def 畫(形狀, 顏色, 按鈕X, 按鈕Y):
+    四分之一 = int(按鈕尺寸 * 0.25) # syntactic sugar
+    一半 =    int(按鈕尺寸 * 0.5)  # syntactic sugar
+
+    左, 上 = 左上(按鈕X, 按鈕Y) # get pixel coords from board coords
+    # Draw the shapes
+    if 形狀 == 圈圈:
+        pygame.draw.circle(展示, 顏色, (左 + 一半, 上 + 一半), 一半 - 5)
+        pygame.draw.circle(展示, 背景顏色, (左 + 一半, 上 + 一半), 四分之一 - 5)
+    elif 形狀 == 方塊:
+        pygame.draw.rect(展示, 顏色, (左 +四分之一, 上 + 四分之一, 按鈕尺寸 - 一半, 按鈕尺寸 - 一半))
+    elif 形狀 == 鑽石:
+        pygame.draw.polygon(展示, 顏色, ((左+ 一半, 上), (左 + 按鈕尺寸- 1, 上 + 一半), (左 +一半, 上 + 按鈕尺寸 - 1), (左, 上 + 一半)))
+    elif 形狀 == 線條:
+        for i in range(0, 按鈕尺寸, 4):
+            pygame.draw.line(展示, 顏色, (左, 上 + i), (左 + i, 上))
+            pygame.draw.line(展示, 顏色, (左 + i, 上 + 按鈕尺寸 - 1), (左 + 按鈕尺寸 - 1, 上 + i))
+    elif 形狀 == 橢圓:
+        pygame.draw.ellipse(展示, 顏色, (左, 上 + 四分之一, 按鈕尺寸, 一半))
+
+
+def 形狀和顏色(版面, 按鈕X, 按鈕Y):
+    # shape value for x, y spot is stored in board[x][y][0]
+    # color value for x, y spot is stored in board[x][y][1]
+    return 版面[按鈕X][按鈕Y][0], 版面[按鈕X][按鈕Y][1]
+
+
+def 畫按鈕(版面, 按鈕, 覆蓋):
+    # Draws boxes being covered/revealed. "boxes" is a list
+    # of two-item lists, which have the x & y spot of the box.
+    for 按鈕 in 按鈕:
+        左, 上 = 左上(按鈕[0], 按鈕[1])
+        pygame.畫.處(展示, 背景顏色, (左, 上, 按鈕尺寸, 按鈕尺寸))
+        形狀, 顏色 = 形狀和顏色(版面, 按鈕[0], 按鈕[1])
+        畫(形狀, 顏色, 按鈕[0], 按鈕[1])
+        if 覆蓋 > 0: # only draw the cover if there is an coverage
+            pygame.畫.處(展示,按鈕顏色, (左, 上, 覆蓋, 按鈕顏色))
+    pygame.display.update()
+    畫面刷新計數器.tick(畫面刷新速度)
+
+
+def 按鈕動畫(按鈕, 按鈕展示):
+    # Do the "box reveal" animation.
+    for 覆蓋 in range(按鈕尺寸, (-展示速度) - 1, -展示速度):
+        畫按鈕(版面, 按鈕展示, 覆蓋)
+
+
+def 覆蓋動畫(版面, 按鈕覆蓋):
+    # Do the "box cover" animation.
+    for 覆蓋 in range(0, 按鈕尺吋 + 展示速度, 展示速度):
+        畫按鈕(版面, 覆蓋動畫, 覆蓋)
+
+
+def 按鈕畫(版面, 展示的):
+    # Draws all of the boxes in their covered or revealed state.
+    for 按鈕X in range(寬度):
+        for 按鈕X in range(高度):
+            左, 上 = 左上(按鈕X, 按鈕Y)
+            if not 覆蓋的[按鈕X][按鈕Y]:
+                # Draw a covered box.
+                pygame.畫.處(展示, 按鈕顏色, (左, 上, 按鈕尺寸, 按鈕尺寸))
+            else:
+                # Draw the (revealed) icon.
+                形狀, 顏色 = 形狀和顏色(面板, 按鈕X,按鈕Y)
+                按鈕畫(形狀, 顏色, 按鈕X, 按鈕Y)
+
+
+def 畫超亮按鈕(按鈕X, 按鈕Y):
+    左, 上 = 左上(按鈕X, 按鈕Y)
+    pygame.畫.處(展示, 超亮顏色, (左 - 5,上 - 5, 按鈕尺寸 + 10, 按鈕尺寸 + 10), 4)
+
+
+def 遊戲開始動畫(面板):
+    # Randomly reveal the boxes 8 at a time.
+    覆蓋按鈕 = 按鈕資料(False)
+    按鈕 = []
+    for x in range(寬度):
+        for y in range(高度):
+            按鈕.速度( (x, y) )
+    隨機.拖曳(按鈕)
+    按鈕群組 = 拆組(8, boxes)
+
+    畫(面板, 覆蓋按鈕)
+    for 組 in 群組:
+        按鈕動畫(面板, 組)
+        覆蓋動畫(面板, 組)
+
+
+def 勝利動畫(面板):
+    # flash the background color when the player has won
+    覆蓋按鈕 = 按鈕資料(True)
+    顏色1 = 亮背景色
+    顏色2 = 背景顏色
+
+    for i in range(13):
+        顏色1, 顏色2 = 顏色2, 顏色1 # swap colors
+        展示.填滿(顏色1)
+        畫(面板, 覆蓋按鈕)
+        pygame.展示.上傳()
+        pygame.時間.延遲(300)
+
+
+def 贏了(按鈕):
+    # Returns True if all the boxes have been revealed, otherwise False
+    for i in 按鈕:
+        if False in i:
+            return False # return False if any boxes are covered.
+    return True
+
+
+if __name__ == '__main__':
+    main()
+
